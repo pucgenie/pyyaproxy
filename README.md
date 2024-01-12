@@ -8,4 +8,4 @@ Yet another proxy written in Python.
 https://stackoverflow.com/a/21297354/2714781
 
 ## See also
-https://nmap.org/ncat/guide/ncat-tricks.html#:~:text=Chain%20Ncats%20Together
+[ncat -l localhost 8080 --sh-exec "ncat example.org 80"](https://nmap.org/ncat/guide/ncat-tricks.html#:~:text=Chain%20Ncats%20Together)
