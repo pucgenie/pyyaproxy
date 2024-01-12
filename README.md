@@ -4,7 +4,7 @@ Because understanding documentation for existing solutions is not easy I quickly
 
 Yet another proxy written in Python.
 
-# Original sourcecode from (StackOverflow) gawel
+# Original sourcecode from (StackOverflow.com) gawel
 https://stackoverflow.com/a/21297354/2714781
 
 ## See also
