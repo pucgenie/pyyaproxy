@@ -23,15 +23,19 @@ class TargetClient(asyncio.Protocol):
 		Forward data to the correct client.
 		Fortunately, the client surely is connected (as long as nothing is broken - in which case we wouldn't even try to correct that and we will just let the connection die).
 		"""
-		# 
 		# blocking call
 		self.proxied_client.write(data)
+
+		# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
+		print('server2client_n_bytes: ', len(data), file=sys.stdout,)
 
 	def connection_lost(self, *args,):
 		"""
 		Reduced error message logging by preventing follow-up errors.
 		"""
 		self.proxied_client.close()
+		# I don't want to risk it
+		#self.proxied_client = None
 
 
 class PassTCPServer(asyncio.Protocol):
@@ -81,8 +85,11 @@ class PassTCPServer(asyncio.Protocol):
 		if raceIt is None:
 			# blocking call
 			self.target_client.transport.write(data)
+			# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
+			# (ignored on first segment (raceIt))
+			print('client2server_n_bytes: ', len(data), file=sys.stdout,)
 		else:
-			# TCP Fast Open
+			# In case of TCP Fast Open or slow Target connection establishment
 			def afterConnectedTarget(connectedFuture):
 				try:
 					connectedFuture.result()[1].transport.write(data)
@@ -103,6 +110,8 @@ class PassTCPServer(asyncio.Protocol):
 		# If connecting fails early, we don't have access to any target_client here.
 		if self.target_client is not None:
 			self.target_client.transport.close()
+			# I don't want to risk it
+			#self.target_client = None
 
 
 if __name__ == '__main__':
