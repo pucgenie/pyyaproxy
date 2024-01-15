@@ -78,7 +78,7 @@ class PassTCPServer(Protocol):
 			# gray hair if you need to debug
 			self.connectedFuture = None
 		# Why does it know what loop is?
-		self.connectedFuture = asyncio.Task(loop.create_connection(TargetClient, *PassTCPServer.target_server,), loop=loop,)
+		self.connectedFuture = Task(loop.create_connection(TargetClient, *PassTCPServer.target_server,), loop=loop,)
 		self.connectedFuture.add_done_callback(onConnectedTarget)
 
 	def data_received(self, data,):
