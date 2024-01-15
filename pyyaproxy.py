@@ -1,10 +1,12 @@
 #!/usr/bin/python3
-import asyncio, socket
-import os, sys
+from asyncio import Protocol, run as runInAsyncioLoop, Task, get_event_loop
+from socket import IPPROTO_TCP, TCP_NODELAY, gaierror
+from os import getenv
+from sys import stdout, stderr
 """
 License: StackOverflow default CC BY-SA 4.0, author: gawel https://stackoverflow.com/a/21297354/2714781
 """
-class TargetClient(asyncio.Protocol):
+class TargetClient(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'proxied_client',)
 
@@ -13,7 +15,7 @@ class TargetClient(asyncio.Protocol):
 		As soon as this connection to the TargetServer is established, optimize for low latency and remember transport.
 		"""
 		self.transport = transport
-		transport.get_extra_info('socket').setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1,)
+		transport.get_extra_info('socket').setsockopt(IPPROTO_TCP, TCP_NODELAY, 1,)
 
 	def data_received(self, data,):
 		"""
@@ -24,7 +26,7 @@ class TargetClient(asyncio.Protocol):
 		self.proxied_client.write(data)
 
 		# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
-		print('server2client_n_bytes: ', len(data), file=sys.stdout,)
+		print('server2client_n_bytes: ', len(data), file=stdout,)
 
 	def connection_lost(self, *args,):
 		"""
@@ -35,7 +37,7 @@ class TargetClient(asyncio.Protocol):
 		#self.proxied_client = None
 
 
-class PassTCPServer(asyncio.Protocol):
+class PassTCPServer(Protocol):
 	target_server = None # (host, port,)
 
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
@@ -50,18 +52,18 @@ class PassTCPServer(asyncio.Protocol):
 		
 		# save the transport
 		self.transport = transport
-		transport.get_extra_info('socket').setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1,)
+		transport.get_extra_info('socket').setsockopt(IPPROTO_TCP, TCP_NODELAY, 1,)
 		assert self.target_client is None, """It's not that simple^^"""
 		def onConnectedTarget(connectedFuture, self=self,):
 			try:
 				protocol, target_client = connectedFuture.result()
-			except socket.gaierror as gaierr:
+			except gaierror as gaierr:
 				# logging
-				print('failed: Client', transport.get_extra_info('peername'), ', target_server_error: ', gaierr, file=sys.stderr,)
+				print('failed: Client', transport.get_extra_info('peername'), ', target_server_error: ', gaierr, file=stderr,)
 				self.transport.close()
 
 			# logging
-			print('connected: Client', transport.get_extra_info('peername'), file=sys.stderr,)
+			print('connected: Client', transport.get_extra_info('peername'), file=stderr,)
 			
 			target_client.proxied_client = self.transport
 			self.target_client = target_client
@@ -83,16 +85,16 @@ class PassTCPServer(asyncio.Protocol):
 			self.target_client.transport.write(data)
 			# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
 			# (ignored on first segment (raceIt))
-			print('client2server_n_bytes: ', len(data), file=sys.stdout,)
+			print('client2server_n_bytes: ', len(data), file=stdout,)
 		else:
 			# In case of TCP Fast Open or slow Target connection establishment
 			def afterConnectedTarget(connectedFuture):
 				try:
 					connectedFuture.result()[1].transport.write(data)
-				except socket.gaierror as gaierr:
+				except gaierror as gaierr:
 					# logging
 					# maybe `self` is not visible?
-					print('failed: Client', self.transport.get_extra_info('peername'), ', target_server_error: ', gaierr, ', duplicate_log_message: expected', file=sys.stderr,)
+					print('failed: Client', self.transport.get_extra_info('peername'), ', target_server_error: ', gaierr, ', duplicate_log_message: expected', file=stderr,)
 					self.transport.close()
 			raceIt.add_done_callback(afterConnectedTarget)
 	
@@ -102,7 +104,7 @@ class PassTCPServer(asyncio.Protocol):
 		Reduced error message logging by preventing follow-up errors.
 		"""
 		# logging
-		print(f"disconnected: Client{self.transport.get_extra_info('peername')}", file=sys.stderr,)
+		print(f"disconnected: Client{self.transport.get_extra_info('peername')}", file=stderr,)
 		# If connecting fails early, we don't have access to any target_client here.
 		if self.target_client is not None:
 			self.target_client.transport.close()
@@ -116,15 +118,15 @@ if __name__ == '__main__':
 
 	# I don't like base10 IPv4 addresses and TCP port numbers so I won't support a.b.c.d:e notation parsing.
 	# If it crashes there you know what to do, right? ... amirite?
-	PassTCPServer.target_server = (os.getenv('TARGET_SERVER_FQDN'), intOrDefault(os.getenv('TARGET_SERVER_PORT'), 25565,),)
-	relay_bind = (os.getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(os.getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],),)
+	PassTCPServer.target_server = (getenv('TARGET_SERVER_FQDN'), intOrDefault(getenv('TARGET_SERVER_PORT'), 25565,),)
+	relay_bind = (getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],),)
 
 	# premature optimization?
 	del intOrDefault
 
-	loop = asyncio.get_event_loop()
+	loop = get_event_loop()
 	# blocking call
-	asyncio.run(loop.create_server(PassTCPServer, *relay_bind,))
+	runInAsyncioLoop(loop.create_server(PassTCPServer, *relay_bind,))
 
 	# premature optimization?
 	del relay_bind
