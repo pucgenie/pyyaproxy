@@ -10,6 +10,10 @@ class TargetClient(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'proxied_client',)
 
+	def __init__(self):
+		self.transport = None
+		self.proxied_client = None
+
 	def connection_made(self, transport,):
 		"""
 		As soon as this connection to the TargetServer is established, optimize for low latency and remember transport.
@@ -38,17 +42,21 @@ class TargetClient(Protocol):
 
 
 class PassTCPServer(Protocol):
-	target_server = None # (host, port,)
-
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'target_client', 'connectedFuture',)
+	
+	target_server = None # (host, port,)
+
+	def __init__(self):
+		self.transport = None
+		self.target_client = None
+		self.connectedFuture = 'bug#1'
 
 	def connection_made(self, transport,):
 		"""
 		As soon as a client connects, connect through to target_server.
 		"""
-		# removed as we introduced __slots__. At the moment debugging isn't necessary. Keep it here for the idea.
-		# assert self.connectedFuture == 'bug#1'
+		assert self.connectedFuture == 'bug#1'
 		
 		# save the transport
 		self.transport = transport
