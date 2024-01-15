@@ -5,11 +5,8 @@ import os, sys
 License: StackOverflow default CC BY-SA 4.0, author: gawel https://stackoverflow.com/a/21297354/2714781
 """
 class TargetClient(asyncio.Protocol):
-
-	# premature optimization?
-	def __init__(self):
-		self.transport = None
-		self.proxied_client = None
+	# premature optimization? https://stackoverflow.com/a/53388520/2714781
+	__slots__ = ('transport', 'proxied_client',)
 
 	def connection_made(self, transport,):
 		"""
@@ -41,11 +38,8 @@ class TargetClient(asyncio.Protocol):
 class PassTCPServer(asyncio.Protocol):
 	target_server = None # (host, port,)
 
-	# premature optimization?
-	def __init__(self):
-		self.transport = None
-		self.target_client = None
-		self.connectedFuture = 'bug#1'
+	# premature optimization? https://stackoverflow.com/a/53388520/2714781
+	__slots__ = ('transport', 'target_client', 'connectedFuture')
 
 	def connection_made(self, transport,):
 		"""
