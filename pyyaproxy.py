@@ -39,13 +39,15 @@ class PassTCPServer(asyncio.Protocol):
 	target_server = None # (host, port,)
 
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
-	__slots__ = ('transport', 'target_client', 'connectedFuture')
+	__slots__ = ('transport', 'target_client', 'connectedFuture',)
 
 	def connection_made(self, transport,):
 		"""
 		As soon as a client connects, connect through to target_server.
 		"""
-		assert self.connectedFuture == 'bug#1'
+		# removed as we introduced __slots__. At the moment debugging isn't necessary. Keep it here for the idea.
+		# assert self.connectedFuture == 'bug#1'
+		
 		# save the transport
 		self.transport = transport
 		transport.get_extra_info('socket').setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1,)
