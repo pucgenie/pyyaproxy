@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-from asyncio import Protocol, Task, get_event_loop, ensure_future
+from asyncio import Protocol, Task, new_event_loop, create_task
 from socket import IPPROTO_TCP, TCP_NODELAY, gaierror
 from os import getenv
 from sys import stdout, stderr
@@ -78,7 +78,7 @@ class PassTCPServer(Protocol):
 			# gray hair if you need to debug
 			self.connectedFuture = None
 		# Why does it know what loop is?
-		self.connectedFuture = Task(loop.create_connection(TargetClient, *PassTCPServer.target_server,), loop=loop,)
+		self.connectedFuture = create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server,))
 		self.connectedFuture.add_done_callback(lambda connectedFuture, self=self: onConnectedTarget(self, connectedFuture,))
 
 	def data_received(self, data,):
@@ -132,10 +132,11 @@ if __name__ == '__main__':
 	# premature optimization?
 	del intOrDefault
 
-	loop = get_event_loop()
-	ensure_future(loop.create_server(PassTCPServer, *relay_bind,), loop=loop,)
+	loop = new_event_loop()
+	serverTask = create_task(loop.create_server(PassTCPServer, *relay_bind,))
 
 	# premature optimization?
 	del relay_bind
 	
 	loop.run_forever()
+	serverTask.done()
