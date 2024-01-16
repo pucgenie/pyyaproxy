@@ -62,7 +62,7 @@ class PassTCPServer(Protocol):
 		self.transport = transport
 		transport.get_extra_info('socket').setsockopt(IPPROTO_TCP, TCP_NODELAY, 1,)
 		assert self.target_client is None, """It's not that simple^^"""
-		def onConnectedTarget(connectedFuture, self=self,):
+		def onConnectedTarget(self, connectedFuture,):
 			try:
 				protocol, target_client = connectedFuture.result()
 			except gaierror as gaierr:
@@ -79,7 +79,7 @@ class PassTCPServer(Protocol):
 			self.connectedFuture = None
 		# Why does it know what loop is?
 		self.connectedFuture = Task(loop.create_connection(TargetClient, *PassTCPServer.target_server,), loop=loop,)
-		self.connectedFuture.add_done_callback(onConnectedTarget)
+		self.connectedFuture.add_done_callback(lambda connectedFuture, self=self: onConnectedTarget(self, connectedFuture,))
 
 	def data_received(self, data,):
 		"""
