@@ -88,13 +88,7 @@ class PassTCPServer(Protocol):
 		"""
 		# gray hair if you need to debug
 		raceIt = self.connectedFuture
-		if raceIt is None:
-			# blocking call
-			self.target_client.transport.write(data)
-			# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
-			# (ignored on first segment (raceIt))
-			print('client2server_n_bytes: ', len(data), file=stdout,)
-		else:
+		if raceIt is not None:
 			# In case of TCP Fast Open or slow Target connection establishment
 			def afterConnectedTarget(connectedFuture):
 				try:
@@ -105,6 +99,12 @@ class PassTCPServer(Protocol):
 					print('failed: Client', self.transport.get_extra_info('peername'), ', target_server_error: ', gaierr, ', duplicate_log_message: expected', file=stderr,)
 					self.transport.close()
 			raceIt.add_done_callback(afterConnectedTarget)
+		else:
+			# blocking call
+			self.target_client.transport.write(data)
+			# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
+			# (ignored on first segment (raceIt))
+			print('client2server_n_bytes: ', len(data), file=stdout,)
 	
 	def connection_lost(self, *args,):
 		"""
