@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 from asyncio import Protocol, Task, new_event_loop
 from socket import IPPROTO_TCP, TCP_NODELAY, AI_PASSIVE, gaierror
-from os import getenv
+from os import getenv, environ
 from sys import stdout, stderr
 """
 License: StackOverflow default CC BY-SA 4.0, author: gawel https://stackoverflow.com/a/21297354/2714781
@@ -126,7 +126,7 @@ if __name__ == '__main__':
 
 	# I don't like base10 IPv4 addresses and TCP port numbers so I won't support a.b.c.d:e notation parsing.
 	# If it crashes there you know what to do, right? ... amirite?
-	PassTCPServer.target_server = (getenv('TARGET_SERVER_FQDN'), intOrDefault(getenv('TARGET_SERVER_PORT'), 25565,),)
+	PassTCPServer.target_server = (environ['TARGET_SERVER_FQDN'], intOrDefault(getenv('TARGET_SERVER_PORT'), 25565,),)
 	relay_bind = (getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],),)
 
 	# premature optimization?
