@@ -1,11 +1,16 @@
 #!/usr/bin/python3
 from asyncio import Protocol, Task, new_event_loop
 from socket import IPPROTO_TCP, TCP_NODELAY, AI_PASSIVE, gaierror
-from os import getenv, environ
 from sys import stdout, stderr
 """
 License: StackOverflow default CC BY-SA 4.0, author: gawel https://stackoverflow.com/a/21297354/2714781
 """
+class Stats4DownAndUp():
+	statsCollectors = [[], [],]
+
+	def __str__(self):
+		return f"""self is {"None" if self is None else "something"}"""
+
 class TargetClient(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'proxied_client',)
@@ -124,19 +129,23 @@ if __name__ == '__main__':
 	def intOrDefault(x, y,):
 		return y if x is None else int(x)
 
+	from os import getenv, environ
+	from signal import signal, SIGUSR1
 	# I don't like base10 IPv4 addresses and TCP port numbers so I won't support a.b.c.d:e notation parsing.
 	# If it crashes there you know what to do, right? ... amirite?
 	PassTCPServer.target_server = (environ['TARGET_SERVER_FQDN'], intOrDefault(getenv('TARGET_SERVER_PORT'), 25565,),)
-	relay_bind = (getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],),)
 
+	# global context
+	loop = new_event_loop()
+	serverTask = loop.create_task(loop.create_server(PassTCPServer, getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],), flags=AI_PASSIVE | TCP_NODELAY, backlog=2,))
 	# premature optimization?
 	del intOrDefault
-
-	loop = new_event_loop()
-	serverTask = loop.create_task(loop.create_server(PassTCPServer, *relay_bind, flags=AI_PASSIVE | TCP_NODELAY, backlog=2,))
-
-	# premature optimization?
-	del relay_bind
 	
-	loop.run_forever()
-	serverTask.done()
+	def printStats():
+		print(str(Stats4DownAndUp), file=stderr,)
+	signal(SIGUSR1, printStats,)
+
+	try:
+		loop.run_forever()
+	finally:
+		serverTask.done()
