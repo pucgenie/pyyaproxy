@@ -53,8 +53,9 @@ class PassTCPServer(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'target_client', 'target_connecting',)
 	
-	target_server = None # (host, port,)
-
+	# {here_port: (dest_fqdn, dest_port,),}
+	target_server = {}
+	
 	def __init__(self):
 		self.transport = None
 		self.target_client = None
@@ -89,7 +90,7 @@ class PassTCPServer(Protocol):
 				self.transport.close()
 
 		# loop is in global scope
-		self.target_connecting = loop.create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server,))
+		self.target_connecting = loop.create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server[self.port],))
 		self.target_connecting.add_done_callback(lambda target_connecting, self=self: onConnectedTarget(self, target_connecting,))
 
 	def data_received(self, data,):
@@ -132,26 +133,49 @@ class PassTCPServer(Protocol):
 
 
 if __name__ == '__main__':
-	def intOrDefault(x, y,):
-		return y if x is None else int(x)
+	import argparse
+	arg_parser = argparse.ArgumentParser(
+		description="""
+			Yet another Python-based connection-proxy, https://github.com/pucgenie/pyyaproxy
+			Server listens on defined ports and pipes clients to defined target sockets.
+			Single-threaded, async, TCP_NODELAY.
 
-	from os import getenv, environ
-	from signal import signal, SIGUSR1
+			Example: ./pyyaproxy.py --tcp 22:example.net --tcp 8443:example.com:443 --tcp 80:example.org
+		""",
+		epilog="""
+  			pre-release, version 0.x
+		""",
+		formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+	)
+	# TODO: --tcp nargs='*' instead of '+' - as soon as other protocols are implemented
+	arg_parser.add_argument('--tcp', nargs='+',
+		help="""
+			<here_port>:<dest_fqdn>:[<dest_port>], listen on <here_port>, connect through to <dest_fqdn>:<dest_port, defaults to here_port>.
+		""",)
+	arg_parser.add_argument('--backlog', type=int, default=2,)
+	args = arg_parser.parse_args()
+	
 	# I don't like base10 IPv4 addresses and TCP port numbers so I won't support a.b.c.d:e notation parsing.
 	# If it crashes there you know what to do, right? ... amirite?
-	PassTCPServer.target_server = (environ['TARGET_SERVER_FQDN'], intOrDefault(getenv('TARGET_SERVER_PORT'), 25565,),)
-
-	# global context
+	bind_ip = getenv('RELAY_BIND_IP', '0.0.0.0',)
+	
 	loop = new_event_loop()
-	serverTask = loop.create_task(loop.create_server(PassTCPServer, getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],), flags=AI_PASSIVE | TCP_NODELAY, backlog=2,))
-	# premature optimization?
-	del intOrDefault
+	def parseTcpArg(tcpArg):
+		here_port, *dest_fqdn = tcpArg.split(':', 2,)
+		here_port = int(here_port)
+		dest_port = len(dest_fqdn) == 2 ? int(dest_fqdn[1]) : here_port
+		dest_fqdn = dest_fqdn[0]
+		if here_port in PassTCPServer.target_server:
+			raise 'duplicate --tcp <here_port>:...'
+		PassTCPServer.target_server[here_port] = (dest_fqdn, dest_port,)
+		return loop.create_server(PassTCPServer, bind_ip, here_port, flags=AI_PASSIVE | TCP_NODELAY, backlog=args.backlog,)
+	
+	serverTasks = [loop.create_task(parseTcpArg(tcpArg)) for tcpArg in args.tcp]
 	
 	def printStats():
 		print(str(Stats4DownAndUp), file=stderr,)
 	signal(SIGUSR1, printStats,)
 
-	try:
-		loop.run_forever()
-	finally:
+	loop.run_forever()
+	for serverTask in serverTasks:
 		serverTask.done()
