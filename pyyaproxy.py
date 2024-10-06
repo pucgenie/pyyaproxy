@@ -45,13 +45,14 @@ class PassTCPServer(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'target_client', 'connectedFuture',)
 	
-	target_server = None # (host, port,)
-
+	# {here_port: (dest_fqdn, dest_port,),}
+	target_server = {}
+	
 	def __init__(self):
 		self.transport = None
 		self.target_client = None
 		self.connectedFuture = 'bug#1'
-
+	
 	def connection_made(self, transport,):
 		"""
 		As soon as a client connects, connect through to target_server.
@@ -78,9 +79,9 @@ class PassTCPServer(Protocol):
 			# gray hair if you need to debug
 			self.connectedFuture = None
 		# Why does it know what loop is?
-		self.connectedFuture = loop.create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server,))
+		self.connectedFuture = loop.create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server[self.port],))
 		self.connectedFuture.add_done_callback(lambda connectedFuture, self=self: onConnectedTarget(self, connectedFuture,))
-
+	
 	def data_received(self, data,):
 		"""
 		When a client connects, it will most likely be faster to begin to send data before we were able to connect to TargetServer.
@@ -121,22 +122,42 @@ class PassTCPServer(Protocol):
 
 
 if __name__ == '__main__':
-	def intOrDefault(x, y,):
-		return y if x is None else int(x)
+	import argparse
+	arg_parser = argparse.ArgumentParser(
+		description="""
+			Yet another Python-based connection-proxy, https://github.com/pucgenie/pyyaproxy
+			Server listens on defined ports and pipes clients to defined target sockets.
+			Single-threaded, async, TCP_NODELAY.
 
+			Example: ./pyyaproxy.py --tcp 22:example.net --tcp 8443:example.com:443 --tcp 80:example.org
+		""",
+		epilog="""
+  			pre-release, version 0.x
+		""",
+		formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+	)
+	# TODO: --tcp nargs='*' instead of '+' - as soon as other protocols are implemented
+	arg_parser.add_argument('--tcp', nargs='+', help="""<here_port>:<dest_fqdn>:[<dest_port>], listen on <here_port>, connect through to <dest_fqdn>:<dest_port, defaults to here_port>.""")
+	arg_parser.add_argument('--backlog', type=int, default=2,)
+	args = arg_parser.parse_args()
+	
 	# I don't like base10 IPv4 addresses and TCP port numbers so I won't support a.b.c.d:e notation parsing.
 	# If it crashes there you know what to do, right? ... amirite?
-	PassTCPServer.target_server = (environ['TARGET_SERVER_FQDN'], intOrDefault(getenv('TARGET_SERVER_PORT'), 25565,),)
-	relay_bind = (getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],),)
-
-	# premature optimization?
-	del intOrDefault
-
+	bind_ip = getenv('RELAY_BIND_IP', '0.0.0.0',)
+	
 	loop = new_event_loop()
-	serverTask = loop.create_task(loop.create_server(PassTCPServer, *relay_bind, flags=AI_PASSIVE | TCP_NODELAY, backlog=2,))
-
-	# premature optimization?
-	del relay_bind
+	def parseTcpArg(tcpArg):
+		here_port, *dest_fqdn = tcpArg.split(':', 2,)
+		here_port = int(here_port)
+		dest_port = len(dest_fqdn) == 2 ? int(dest_fqdn[1]) : here_port
+		dest_fqdn = dest_fqdn[0]
+		if here_port in PassTCPServer.target_server:
+			raise 'duplicate --tcp <here_port>:...'
+		PassTCPServer.target_server[here_port] = (dest_fqdn, dest_port,)
+		return loop.create_server(PassTCPServer, bind_ip, here_port, flags=AI_PASSIVE | TCP_NODELAY, backlog=args.backlog,)
+	
+	serverTasks = [loop.create_task(parseTcpArg(tcpArg)) for tcpArg in args.tcp]
 	
 	loop.run_forever()
-	serverTask.done()
+	for serverTask in serverTasks:
+		serverTask.done()
