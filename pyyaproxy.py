@@ -163,7 +163,7 @@ if __name__ == '__main__':
 	def parseTcpArg(tcpArg):
 		here_port, *dest_fqdn = tcpArg.split(':', 2,)
 		here_port = int(here_port)
-		dest_port = len(dest_fqdn) == 2 ? int(dest_fqdn[1]) : here_port
+		dest_port = int(dest_fqdn[1]) if len(dest_fqdn) > 1 else here_port
 		dest_fqdn = dest_fqdn[0]
 		if here_port in PassTCPServer.target_server:
 			raise 'duplicate --tcp <here_port>:...'
