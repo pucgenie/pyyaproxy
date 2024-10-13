@@ -1,11 +1,16 @@
 #!/usr/bin/python3
 from asyncio import Protocol, Task, new_event_loop
 from socket import IPPROTO_TCP, TCP_NODELAY, AI_PASSIVE, gaierror
-from os import getenv, environ
 from sys import stdout, stderr
 """
 License: StackOverflow default CC BY-SA 4.0, author: gawel https://stackoverflow.com/a/21297354/2714781
 """
+class Stats4DownAndUp():
+	statsCollectors = [[], [],]
+
+	def __str__(self):
+		return f"""self is {"None" if self is None else "something"}"""
+
 class TargetClient(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'proxied_client',)
@@ -26,11 +31,14 @@ class TargetClient(Protocol):
 		Forward data to the correct client.
 		Fortunately, the client surely is connected (as long as nothing is broken - in which case we wouldn't even try to correct that and we will just let the connection die).
 		"""
-		# blocking call
-		self.proxied_client.write(data)
-
-		# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
-		print('server2client_n_bytes: ', len(data), file=stdout,)
+		try:
+			# non-blocking call, buffers outgoing data for loop
+			self.proxied_client.write(data)
+			# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
+			print('server2client_n_bytes: ', len(data), file=stdout,)
+		except gaierror as gaierr:
+			print(f"disconnected: Target{self.transport.get_extra_info('peername')}", file=stderr,)
+			# connection lost.
 
 	def connection_lost(self, *args,):
 		"""
@@ -43,43 +51,46 @@ class TargetClient(Protocol):
 
 class PassTCPServer(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
-	__slots__ = ('transport', 'target_client', 'connectedFuture',)
+	__slots__ = ('transport', 'target_client', 'target_connecting',)
 	
 	target_server = None # (host, port,)
 
 	def __init__(self):
 		self.transport = None
 		self.target_client = None
-		self.connectedFuture = 'bug#1'
+		self.target_connecting = 'bug#1'
 
 	def connection_made(self, transport,):
 		"""
 		As soon as a client connects, connect through to target_server.
 		"""
-		assert self.connectedFuture == 'bug#1'
+		assert self.target_connecting == 'bug#1'
 		
 		# save the transport
 		self.transport = transport
 		transport.get_extra_info('socket').setsockopt(IPPROTO_TCP, TCP_NODELAY, 1,)
 		assert self.target_client is None, """It's not that simple^^"""
-		def onConnectedTarget(self, connectedFuture,):
+		def onConnectedTarget(self, target_connecting,):
 			try:
-				protocol, target_client = connectedFuture.result()
+				protocol, target_client = target_connecting.result()
+				# logging
+				print('connected: Client', transport.get_extra_info('peername'), file=stderr,)
+
+				# debug code
+				print(self == protocol, self == target_client)
+				
+				target_client.proxied_client = self.transport
+				self.target_client = target_client
+				# gray hair if you need to debug
+				self.target_connecting = None
 			except gaierror as gaierr:
 				# logging
 				print('failed: Client', transport.get_extra_info('peername'), ', target_server_error: ', gaierr, file=stderr,)
 				self.transport.close()
 
-			# logging
-			print('connected: Client', transport.get_extra_info('peername'), file=stderr,)
-			
-			target_client.proxied_client = self.transport
-			self.target_client = target_client
-			# gray hair if you need to debug
-			self.connectedFuture = None
-		# Why does it know what loop is?
-		self.connectedFuture = loop.create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server,))
-		self.connectedFuture.add_done_callback(lambda connectedFuture, self=self: onConnectedTarget(self, connectedFuture,))
+		# loop is in global scope
+		self.target_connecting = loop.create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server,))
+		self.target_connecting.add_done_callback(lambda target_connecting, self=self: onConnectedTarget(self, target_connecting,))
 
 	def data_received(self, data,):
 		"""
@@ -87,18 +98,18 @@ class PassTCPServer(Protocol):
 		TODO: Would raise/except be faster than this simple if construct?
 		"""
 		# gray hair if you need to debug
-		raceIt = self.connectedFuture
+		raceIt = self.target_connecting
 		if raceIt is not None:
 			# In case of TCP Fast Open or slow Target connection establishment
-			def afterConnectedTarget(connectedFuture):
+			def afterConnectedTarget(target_connecting, data,):
 				try:
-					connectedFuture.result()[1].transport.write(data)
+					target_connecting.result()[1].transport.write(data)
 				except gaierror as gaierr:
 					# logging
 					# maybe `self` is not visible?
 					print('failed: Client', self.transport.get_extra_info('peername'), ', target_server_error: ', gaierr, ', duplicate_log_message: expected', file=stderr,)
 					self.transport.close()
-			raceIt.add_done_callback(afterConnectedTarget)
+			raceIt.add_done_callback(lambda target_connecting, data=data: afterConnectedTarget(target_connecting, data,))
 		else:
 			# blocking call
 			self.target_client.transport.write(data)
@@ -124,19 +135,23 @@ if __name__ == '__main__':
 	def intOrDefault(x, y,):
 		return y if x is None else int(x)
 
+	from os import getenv, environ
+	from signal import signal, SIGUSR1
 	# I don't like base10 IPv4 addresses and TCP port numbers so I won't support a.b.c.d:e notation parsing.
 	# If it crashes there you know what to do, right? ... amirite?
 	PassTCPServer.target_server = (environ['TARGET_SERVER_FQDN'], intOrDefault(getenv('TARGET_SERVER_PORT'), 25565,),)
-	relay_bind = (getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],),)
 
+	# global context
+	loop = new_event_loop()
+	serverTask = loop.create_task(loop.create_server(PassTCPServer, getenv('RELAY_BIND_IP', '0.0.0.0',), intOrDefault(getenv('RELAY_BIND_PORT'), PassTCPServer.target_server[1],), flags=AI_PASSIVE | TCP_NODELAY, backlog=2,))
 	# premature optimization?
 	del intOrDefault
-
-	loop = new_event_loop()
-	serverTask = loop.create_task(loop.create_server(PassTCPServer, *relay_bind, flags=AI_PASSIVE | TCP_NODELAY, backlog=2,))
-
-	# premature optimization?
-	del relay_bind
 	
-	loop.run_forever()
-	serverTask.done()
+	def printStats():
+		print(str(Stats4DownAndUp), file=stderr,)
+	signal(SIGUSR1, printStats,)
+
+	try:
+		loop.run_forever()
+	finally:
+		serverTask.done()
