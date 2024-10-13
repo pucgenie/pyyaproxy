@@ -31,9 +31,9 @@ class TargetClient(Protocol):
 			# non-blocking call, buffers outgoing data for loop
 			self.proxied_client.write(data)
 			# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
-			print('server2client_n_bytes: ', len(data), file=stdout,)
+			print('server2client_n_bytes: ', len(data), file=stdout, sep='',)
 		except gaierror as gaierr:
-			print(f"disconnected: Target{self.transport.get_extra_info('peername')}", file=stderr,)
+			print("disconnected: ", self.transport.get_extra_info('peername'), file=stderr, sep='',)
 			# connection lost.
 
 	def connection_lost(self, *args,):
@@ -67,7 +67,7 @@ class PassTCPServer(Protocol):
 		transport.get_extra_info('socket').setsockopt(IPPROTO_TCP, TCP_NODELAY, 1,)
 		assert self.target_client is None, """It's not that simple^^"""
 		def onConnectedTarget(self, target_connecting,):
-			print(transport.get_extra_info('sockname'), ' got new connection from ', transport.get_extra_info('peername'), file=stderr, end='',)
+			print(transport.get_extra_info('sockname'), ' got new connection from ', transport.get_extra_info('peername'), file=stderr, end='', sep='',)
 			try:
 				protocol, target_client = target_connecting.result()
 				print(".", file=stderr,)
@@ -77,7 +77,7 @@ class PassTCPServer(Protocol):
 				# gray hair if you need to debug
 				self.target_connecting = None
 			except gaierror as gaierr:
-				print(', failed: target_server_error: ', gaierr, file=stderr,)
+				print(', failed: target_server_error: ', gaierr, file=stderr, sep='',)
 				self.transport.close()
 
 		# it seems like `loop` is in global scope
@@ -97,9 +97,9 @@ class PassTCPServer(Protocol):
 				try:
 					target_connecting.result()[1].transport.write(data)
 					# (ignored on first segment)
-					#print('client2server_n_bytes: ', len(data), file=stdout,)
+					#print('client2server_n_bytes: ', len(data), file=stdout, sep='',)
 				except gaierror as gaierr:
-					print('failed: Client', transport.get_extra_info('peername'), ', target_server_error: ', gaierr, ', duplicate_log_message: expected', file=stderr,)
+					print('failed: Client', transport.get_extra_info('peername'), ', target_server_error: ', gaierr, ', duplicate_log_message: expected', file=stderr, sep='',)
 					transport.close()
 			raceIt.add_done_callback(lambda target_connecting, data=data, transport=self.transport: afterConnectedTarget(target_connecting, data, transport,))
 		else:
@@ -107,7 +107,7 @@ class PassTCPServer(Protocol):
 			# TODO: maybe assign to second thread?
 			self.target_client.transport.write(data)
 			# measure TCP_NODELAY (Nagle's algorithm NOT to be used) impact somehow
-			print('client2server_n_bytes: ', len(data), file=stdout,)
+			print('client2server_n_bytes: ', len(data), file=stdout, sep='',)
 	
 	def connection_lost(self, *args,):
 		"""
@@ -115,7 +115,7 @@ class PassTCPServer(Protocol):
 		Reduced error message logging by preventing follow-up errors.
 		"""
 		# logging
-		print(f"disconnected: Client{self.transport.get_extra_info('peername')}", file=stderr,)
+		print("disconnected: ", self.transport.get_extra_info('peername'), file=stderr, sep='',)
 		# If connecting fails early, we don't have access to any target_client here.
 		if self.target_client is not None:
 			self.target_client.transport.close()
@@ -124,8 +124,8 @@ class PassTCPServer(Protocol):
 
 
 if __name__ == '__main__':
-	import argparse
-	arg_parser = argparse.ArgumentParser(
+	from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+	arg_parser = ArgumentParser(
 		description="""
 			Yet another Python-based connection-proxy, https://github.com/pucgenie/pyyaproxy
 			Server listens on defined ports and pipes clients to defined target sockets.
@@ -136,22 +136,56 @@ if __name__ == '__main__':
 		epilog="""
   			pre-release, version 0.x
 		""",
-		formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+		formatter_class=ArgumentDefaultsHelpFormatter,
 	)
+	# premature optimization?
+	del ArgumentParser
+	del ArgumentDefaultsHelpFormatter
 	# TODO: --tcp nargs='*' instead of '+' - as soon as other protocols are implemented
 	arg_parser.add_argument('--tcp', nargs='+',
 		help="""
 			<here_port>:<dest_fqdn>:[<dest_port>], listen on <here_port>, connect through to <dest_fqdn>:<dest_port, defaults to here_port>.
 		""",)
 	arg_parser.add_argument('--backlog', type=int, default=2,)
+	arg_parser.add_argument('--stats-fd', type=int, default=3,
+		help="""
+			Where to print statistics to.
+		""",)
 	args = arg_parser.parse_args()
-	from os import getenv, environ, fdopen
-	
+	# premature optimization?
+	del arg_parser
+
+	from os import fdopen
+	# python is missing inline match expressions
+	from typing import TextIO
+	def fdReuser(the_fd) -> TextIO:
+		match the_fd:
+			case 1:
+				return stdout
+			case 2:
+				return stderr
+			case _:
+				try:
+					return fdopen(the_fd, 'w')
+				except OSError as oserr:
+					print("Can't open fd ", the_fd, ", using stdout instead.", file=stderr, sep='',)
+					return stdout
+	args.stats_fd = fdReuser(args.stats_fd)
+	# premature optimization?
+	del fdReuser
+	del fdopen
+
 	# I don't like base10 IPv4 addresses and TCP port numbers so I won't support a.b.c.d:e notation parsing.
 	# If it crashes there you know what to do, right? ... amirite?
+	from os import getenv
 	bind_ip = getenv('RELAY_BIND_IP', '0.0.0.0',)
+	# premature optimization?
+	del getenv
 	
 	loop = new_event_loop()
+	# premature optimization?
+	del new_event_loop
+
 	def parseTcpArg(tcpArg):
 		here_port, *dest_fqdn = tcpArg.split(':', 2,)
 		here_port = int(here_port)
@@ -163,11 +197,21 @@ if __name__ == '__main__':
 		return loop.create_server(PassTCPServer, bind_ip, here_port, flags=AI_PASSIVE | TCP_NODELAY, backlog=args.backlog,)
 	
 	serverTasks = [loop.create_task(parseTcpArg(tcpArg)) for tcpArg in args.tcp]
+	# premature optimization?
+	del parseTcpArg
+	
+	if len(serverTasks) == 0:
+		raise "No connectors defined, nothing to do."
 	
 	def printStats():
 		print(str(Stats4DownAndUp), file=stderr,)
 	from signal import signal, SIGUSR1
 	signal(SIGUSR1, printStats,)
+	# premature optimization?
+	del printStats
+
+	# premature optimization?
+	del args
 
 	loop.run_forever()
 	for serverTask in serverTasks:
