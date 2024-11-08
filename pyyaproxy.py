@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-from asyncio import Protocol, Task, new_event_loop
+from asyncio import Protocol, new_event_loop
 from socket import IPPROTO_TCP, TCP_NODELAY, AI_PASSIVE, gaierror
 from sys import stdout, stderr
 """
@@ -121,7 +121,7 @@ class PassTCPServer(Protocol):
 			self.target_client.transport.close()
 			# I don't want to risk it
 			#self.target_client = None
-
+del Protocol
 
 if __name__ == '__main__':
 	from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -142,7 +142,7 @@ if __name__ == '__main__':
 	del ArgumentParser
 	del ArgumentDefaultsHelpFormatter
 	# TODO: --tcp nargs='*' instead of '+' - as soon as other protocols are implemented
-	arg_parser.add_argument('--tcp', nargs='+',
+	arg_parser.add_argument('--tcp', nargs='*',
 		help="""
 			<here_port>:<dest_fqdn>:[<dest_port>], listen on <here_port>, connect through to <dest_fqdn>:<dest_port, defaults to here_port>.
 		""",)
@@ -151,7 +151,7 @@ if __name__ == '__main__':
 		help="""
 			Where to print statistics to.
 		""",)
-	args = arg_parser.parse_args()
+	args2 = arg_parser.parse_args()
 	# premature optimization?
 	del arg_parser
 
@@ -170,7 +170,7 @@ if __name__ == '__main__':
 				except OSError as oserr:
 					print("Can't open fd ", the_fd, ", using stdout instead.", file=stderr, sep='',)
 					return stdout
-	args.stats_fd = fdReuser(args.stats_fd)
+	args2.stats_fd = fdReuser(args2.stats_fd)
 	# premature optimization?
 	del fdReuser
 	del fdopen
@@ -186,7 +186,7 @@ if __name__ == '__main__':
 	# premature optimization?
 	del new_event_loop
 
-	def parseTcpArg(tcpArg):
+	def parseTcpArg(tcpArg, bind_ip = bind_ip,):
 		here_port, *dest_fqdn = tcpArg.split(':', 2,)
 		here_port = int(here_port)
 		dest_port = int(dest_fqdn[1]) if len(dest_fqdn) > 1 else here_port
@@ -194,11 +194,13 @@ if __name__ == '__main__':
 		if here_port in PassTCPServer.target_server:
 			raise 'duplicate --tcp <here_port>:...'
 		PassTCPServer.target_server[here_port] = (dest_fqdn, dest_port,)
-		return loop.create_server(PassTCPServer, bind_ip, here_port, flags=AI_PASSIVE | TCP_NODELAY, backlog=args.backlog,)
+		# TODO: implement packet coalescing if fragment flag is set?
+		return loop.create_server(PassTCPServer, bind_ip, here_port, flags=AI_PASSIVE | TCP_NODELAY, backlog=args2.backlog,)
 	
-	serverTasks = [loop.create_task(parseTcpArg(tcpArg)) for tcpArg in args.tcp]
+	serverTasks = [loop.create_task(parseTcpArg(tcpArg)) for tcpArg in args2.tcp]
 	# premature optimization?
 	del parseTcpArg
+	# TODO: add UDP
 	
 	if len(serverTasks) == 0:
 		raise "No connectors defined, nothing to do."
@@ -211,8 +213,11 @@ if __name__ == '__main__':
 	del printStats
 
 	# premature optimization?
-	del args
+	del args2
+	# previous line crashes ms-python.debugpy
+
+	#loop.run_until_complete(gather(*serverTasks))
 
 	loop.run_forever()
-	for serverTask in serverTasks:
-		serverTask.done()
+	#for serverTask in serverTasks:
+	#	serverTask.done()
