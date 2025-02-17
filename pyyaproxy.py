@@ -1,6 +1,4 @@
 #!/usr/bin/python3
-from asyncio import Protocol, new_event_loop
-from socket import IPPROTO_TCP, TCP_NODELAY, AI_PASSIVE, gaierror
 from sys import stdout, stderr
 """
 License: StackOverflow default CC BY-SA 4.0, author: gawel https://stackoverflow.com/a/21297354/2714781
@@ -11,6 +9,8 @@ class Stats4DownAndUp():
 	def __str__(self):
 		return f"""self is {"None" if self is None else "something"}"""
 
+from asyncio import Protocol
+from socket import IPPROTO_TCP, TCP_NODELAY, gaierror
 class TargetClient(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
 	__slots__ = ('transport', 'proxied_client',)
@@ -43,7 +43,6 @@ class TargetClient(Protocol):
 		self.proxied_client.close()
 		# I don't want to risk it
 		#self.proxied_client = None
-
 
 class PassTCPServer(Protocol):
 	# premature optimization? https://stackoverflow.com/a/53388520/2714781
@@ -82,7 +81,7 @@ class PassTCPServer(Protocol):
 
 		# it seems like `loop` is in global scope
 		self.target_connecting = loop.create_task(loop.create_connection(TargetClient, *PassTCPServer.target_server[transport.get_extra_info('sockname')[1]],))
-		self.target_connecting.add_done_callback(lambda target_connecting, self=self: onConnectedTarget(self, target_connecting,))
+		self.target_connecting.add_done_callback(lambda target_connecting, self=self: onConnectedTarget(self, target_connecting,),)
 
 	def data_received(self, data,):
 		"""
@@ -101,7 +100,7 @@ class PassTCPServer(Protocol):
 				except gaierror as gaierr:
 					print('failed: Client', transport.get_extra_info('peername'), ', target_server_error: ', gaierr, ', duplicate_log_message: expected', file=stderr, sep='',)
 					transport.close()
-			raceIt.add_done_callback(lambda target_connecting, data=data, transport=self.transport: afterConnectedTarget(target_connecting, data, transport,))
+			raceIt.add_done_callback(lambda target_connecting, data=data, transport=self.transport: afterConnectedTarget(target_connecting, data, transport,),)
 		else:
 			# blocking call
 			# TODO: maybe assign to second thread?
@@ -141,6 +140,7 @@ if __name__ == '__main__':
 	# premature optimization?
 	del ArgumentParser
 	del ArgumentDefaultsHelpFormatter
+
 	# TODO: --tcp nargs='*' instead of '+' - as soon as other protocols are implemented
 	arg_parser.add_argument('--tcp', nargs='*',
 		help="""
@@ -166,7 +166,7 @@ if __name__ == '__main__':
 				return stderr
 			case _:
 				try:
-					return fdopen(the_fd, 'w')
+					return fdopen(the_fd, 'w',)
 				except OSError as oserr:
 					print("Can't open fd ", the_fd, ", using stdout instead.", file=stderr, sep='',)
 					return stdout
@@ -182,20 +182,24 @@ if __name__ == '__main__':
 	# premature optimization?
 	del getenv
 	
+	from asyncio import new_event_loop
 	loop = new_event_loop()
 	# premature optimization?
 	del new_event_loop
 
+	from socket import AI_PASSIVE
 	def parseTcpArg(tcpArg, bind_ip = bind_ip,):
 		here_port, *dest_fqdn = tcpArg.split(':', 2,)
-		here_port = int(here_port)
-		dest_port = int(dest_fqdn[1]) if len(dest_fqdn) > 1 else here_port
+		here_port = int(here_port, base=0,)
+		dest_port = int(dest_fqdn[1], base=0,) if len(dest_fqdn) > 1 else here_port
 		dest_fqdn = dest_fqdn[0]
 		if here_port in PassTCPServer.target_server:
 			raise 'duplicate --tcp <here_port>:...'
 		PassTCPServer.target_server[here_port] = (dest_fqdn, dest_port,)
 		# TODO: implement packet coalescing if fragment flag is set?
 		return loop.create_server(PassTCPServer, bind_ip, here_port, flags=AI_PASSIVE | TCP_NODELAY, backlog=args2.backlog,)
+	# premature optimization?
+	del AI_PASSIVE
 	
 	serverTasks = [loop.create_task(parseTcpArg(tcpArg)) for tcpArg in args2.tcp]
 	# premature optimization?
